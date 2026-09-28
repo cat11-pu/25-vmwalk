@@ -1,0 +1,39 @@
+{
+  "state": {
+    "config": { "offset_bits": 4, "index_bits": 3, "levels": 3, "frames": 8, "tlb_size": 4 },
+    "tables": [[[], []]],
+    "mappings": [],
+    "free": [0, 1, 2, 3, 4, 5, 6, 7],
+    "tlb": [-1, -1, -1, -1],
+    "cursor": 0,
+    "accesses": [],
+    "faults": [],
+    "maps": 0,
+    "unmaps": 0,
+    "walks": 0,
+    "hits": 0,
+    "misses": 0,
+    "fault_count": 0,
+    "tables_new": 0,
+    "tables_freed": 0,
+    "flushes": 0
+  },
+  "events": [
+    { "kind": "map", "vpn": 0, "frame": -1 },
+    { "kind": "map", "vpn": 8, "frame": -1 },
+    { "kind": "map", "vpn": 64, "frame": -1 },
+    { "kind": "access", "address": 5 },
+    { "kind": "access", "address": 132 },
+    { "kind": "access", "address": 7 },
+    { "kind": "map", "vpn": 8, "frame": -1 },
+    { "kind": "unmap", "vpn": 8 },
+    { "kind": "map", "vpn": 72, "frame": -1 },
+    { "kind": "access", "address": 1152 },
+    { "kind": "flush" },
+    { "kind": "access", "address": 1160 },
+    { "kind": "access", "address": 1600 },
+    { "kind": "unmap", "vpn": 0 },
+    { "kind": "map", "vpn": 0, "frame": -1 },
+    { "kind": "access", "address": 3 }
+  ]
+}

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>vmwalk 虚拟地址下钻台</title>
+<style>
+:root{--ink:#101418;--line:#c9cfd6;--paper:#f4f1ea;--hot:#b3261e;--cool:#1d5fa8;--dim:#6b7280}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,"Segoe UI",sans-serif}
+.deck{max-width:1080px;margin:0 auto;padding:14px 16px 26px}
+.deck-head{display:block;border-bottom:3px double var(--ink);padding-bottom:8px}
+.title{font-size:19px;font-weight:700;letter-spacing:1px}
+.sub{font-size:12px;color:var(--dim);margin-top:2px}
+.readouts{display:flex;flex-wrap:wrap;gap:0;margin:10px 0 0;padding:0;list-style:none;border-top:1px solid var(--line)}
+.readouts li{font-size:12px;padding:6px 14px 6px 0;margin-right:14px;border-right:1px dotted var(--line)}
+.readouts li:last-child{border-right:0}
+.readouts b{font-family:ui-monospace,Consolas,monospace;font-size:14px}
+.strip{margin-top:14px}
+.strip-label{font-size:12px;color:var(--dim);letter-spacing:1px;margin-bottom:4px}
+.mark{font-style:normal;font-size:12px;margin-left:8px;padding:1px 6px;border:1px solid var(--line);border-radius:2px}
+.mark.ok{color:var(--cool);border-color:var(--cool)}
+.mark.bad{color:#fff;background:var(--hot);border-color:var(--hot)}
+.ruler{display:flex;align-items:stretch;border:1px solid var(--ink);background:#fff}
+.seg{flex:1 1 0;border-right:1px solid var(--line);padding:6px 8px;min-width:0}
+.seg:last-child{border-right:0}
+.seg .cap{font-size:11px;color:var(--dim)}
+.seg .val{font-family:ui-monospace,Consolas,monospace;font-size:17px}
+.seg.off{background:#eee7d8}
+.seg.lit{background:#dbe8f7}
+.beat{margin-top:6px;display:flex;align-items:center;gap:6px;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+.beat .step{border:1px solid var(--line);padding:3px 8px;background:#fff}
+.beat .step.stop{border-color:var(--hot);color:var(--hot)}
+.beat .arrow{color:var(--dim)}
+.levels{display:grid;gap:6px}
+.lvl{display:flex;align-items:flex-start;gap:8px;border-bottom:1px dotted var(--line);padding-bottom:6px}
+.lvl .tag{flex:0 0 46px;font-size:12px;color:var(--dim);padding-top:4px}
+.lvl .cells{display:flex;flex-wrap:wrap;gap:6px}
+.tblbox{border:1px solid var(--line);background:#fff;padding:3px 6px 5px}
+.tblbox .path{font-size:11px;color:var(--dim);font-family:ui-monospace,Consolas,monospace}
+.tblbox .ent{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-size:12px;margin-right:7px}
+.tblbox .ent.lit{background:#dbe8f7;outline:1px solid var(--cool)}
+.tblbox.leaf .ent.hit{background:#f6dcd9;outline:1px solid var(--hot)}
+.plates{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap}
+.plate{flex:1 1 420px;min-width:300px}
+.slots{display:flex;gap:8px}
+.slot{border:1px solid var(--line);background:#fff;padding:5px 8px;min-width:88px;position:relative}
+.slot .k{font-size:11px;color:var(--dim)}
+.slot .v{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+.slot.cur{border:2px solid var(--ink)}
+.slot.cur::before{content:"游标";position:absolute;top:-16px;left:0;font-size:11px;color:var(--ink)}
+.frames{display:flex;gap:4px;flex-wrap:wrap}
+.fr{border:1px solid var(--line);background:#fff;padding:4px 6px;font-family:ui-monospace,Consolas,monospace;font-size:12px;min-width:54px;text-align:center}
+.fr.busy{background:#f6dcd9;border-color:var(--hot)}
+table.trace{width:100%;border-collapse:collapse;background:#fff;font-size:12px}
+table.trace th,table.trace td{border:1px solid var(--line);padding:4px 7px;text-align:left}
+table.trace th{background:#efeade;font-weight:600}
+table.trace td.num{font-family:ui-monospace,Consolas,monospace}
+table.trace tr.hit td{background:#e8f0fa}
+table.trace tr.fault td{background:#f9e4e1}
+.tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px;border-top:3px double var(--ink);padding-top:10px}
+.tools label{font-size:12px;color:var(--dim)}
+.tools input{font:inherit;font-family:ui-monospace,Consolas,monospace;width:92px;padding:4px 6px;border:1px solid var(--line);background:#fff}
+.tools button{font:inherit;padding:5px 13px;border:1px solid var(--ink);background:#fff;cursor:pointer}
+.tools button.go{background:var(--ink);color:var(--paper)}
+.hint{font-size:12px;color:var(--dim)}
+.note{font-size:12px;color:var(--dim);margin-top:10px}
+</style></head>
+<body>
+<div class="deck">
+  <header class="deck-head">
+    <div class="title">虚拟地址下钻台</div>
+    <div class="sub" id="sub">读 sample/walk.json，按事件流逐条重演；地址怎么切、表怎么下钻、帧怎么占都画在下面。</div>
+    <ul class="readouts" id="readouts"></ul>
+  </header>
+
+  <section class="strip">
+    <div class="strip-label">地址解剖尺（最近一次访问）</div>
+    <div class="ruler" id="ruler"></div>
+    <div class="beat" id="beat"></div>
+  </section>
+
+  <section class="strip">
+    <div class="strip-label">逐级表<span class="mark" id="markTables"></span></div>
+    <div class="levels" id="levels"></div>
+  </section>
+
+  <section class="plates">
+    <div class="plate">
+      <div class="strip-label">TLB 槽带<span class="mark" id="markTlb"></span></div>
+      <div class="slots" id="slots"></div>
+    </div>
+    <div class="plate">
+      <div class="strip-label">帧分配<span class="mark" id="markFrames"></span></div>
+      <div class="frames" id="frames"></div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <div class="strip-label">访问流水<span class="mark" id="markRecords"></span></div>
+    <table class="trace" id="trace"></table>
+    <div class="note" id="faultNote"></div>
+  </section>
+
+  <footer class="tools">
+    <label>页号 <input id="vpnIn" type="number" value="8"></label>
+    <label>地址 <input id="addrIn" type="number" value="132"></label>
+    <button id="doMap" class="go">映射</button>
+    <button id="doUnmap">解映射</button>
+    <button id="doAccess" class="go">访问</button>
+    <button id="doFlush">清空 TLB</button>
+    <span class="hint" id="hint">补全 ptable.js 与 ops.js 之后，这里的尺、表、槽带会跟着事件一起动。</span>
+  </footer>
+</div>
+<script type="module">
+import { render } from "./app.js";
+
+let spec = null;
+const BAD = "打不开 sample/walk.json：请照 README 起一个静态服务再打开本页。";
+
+function mark(id, ok, text) {
+  const node = document.getElementById(id);
+  node.textContent = text;
+  node.className = "mark " + (ok ? "ok" : "bad");
+}
+
+function drawReadouts(cfg, view) {
+  const box = document.getElementById("readouts");
+  box.textContent = "";
+  const rows = [
+    ["页大小", Math.pow(2, cfg.offset_bits) + " 字节"],
+    ["级数", String(cfg.levels)],
+    ["每级索引位", String(cfg.index_bits)],
+    ["帧数", String(cfg.frames)],
+    ["TLB 槽", String(cfg.tlb_size)],
+    ["事件", String(view.count_events)],
+    ["异常", String(view.failed_events)]
+  ];
+  for (const pair of rows) {
+    const li = document.createElement("li");
+    const cap = document.createTextNode(pair[0] + " ");
+    const val = document.createElement("b");
+    val.textContent = pair[1];
+    li.appendChild(cap);
+    li.appendChild(val);
+    box.appendChild(li);
+  }
+}
+
+function drawRuler(view) {
+  const ruler = document.getElementById("ruler");
+  const beat = document.getElementById("beat");
+  ruler.textContent = "";
+  beat.textContent = "";
+  const cfg = view.config;
+  const last = view.ruler;
+  const spans = [];
+  if (last === null) {
+    spans.push({ cap: "还没有访问事件", val: "-", off: false, lit: false });
+  } else {
+    last.indices.forEach(function (idx, spot) {
+      spans.push({ cap: "第 " + (spot + 1) + " 级索引 " + cfg.index_bits + " 位",
+                   val: String(idx), off: false, lit: true });
+    });
+    spans.push({ cap: "偏移 " + cfg.offset_bits + " 位", val: String(last.offset), off: true, lit: true });
+  }
+  for (const item of spans) {
+    const box = document.createElement("div");
+    box.className = "seg" + (item.off ? " off" : "") + (item.lit ? " lit" : "");
+    const cap = document.createElement("div");
+    cap.className = "cap";
+    cap.textContent = item.cap;
+    const val = document.createElement("div");
+    val.className = "val";
+    val.textContent = item.val;
+    box.appendChild(cap);
+    box.appendChild(val);
+    ruler.appendChild(box);
+  }
+  if (last === null) {
+    return;
+  }
+  const head = document.createElement("span");
+  head.textContent = "地址 " + last.address + " 切出页号 " + last.vpn;
+  beat.appendChild(head);
+  const stops = last.hit === 1 ? ["命中"] : [];
+  if (last.hit === 0) {
+    for (let level = 1; level <= last.probes && level <= cfg.levels; level += 1) {
+      stops.push("第 " + level + " 级");
+    }
+    if (last.frame < 0) {
+      stops.push("断在这里");
+    } else {
+      stops.push("取到帧 " + last.frame);
+    }
+  }
+  for (const text of stops) {
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = ">";
+    const step = document.createElement("span");
+    step.className = "step" + (text === "断在这里" ? " stop" : "");
+    step.textContent = text;
+    beat.appendChild(arrow);
+    beat.appendChild(step);
+  }
+  const tail = document.createElement("span");
+  tail.textContent = last.hit === 1 ? "下钻 0 次" : "下钻 " + last.probes + " 次";
+  beat.appendChild(tail);
+}
+
+function drawLevels(view) {
+  const box = document.getElementById("levels");
+  box.textContent = "";
+  const levels = view.config.levels;
+  const last = view.ruler;
+  for (let level = 1; level <= levels; level += 1) {
+    const row = document.createElement("div");
+    row.className = "lvl";
+    const tag = document.createElement("div");
+    tag.className = "tag";
+    tag.textContent = "第 " + level + " 级";
+    const cells = document.createElement("div");
+    cells.className = "cells";
+    let count = 0;
+    for (const table of view.tables) {
+      if (table[0].length !== level - 1) {
+        continue;
+      }
+      count += 1;
+      const box2 = document.createElement("div");
+      box2.className = "tblbox" + (level === levels ? " leaf" : "");
+      const path = document.createElement("div");
+      path.className = "path";
+      path.textContent = table[0].length === 0 ? "根表" : "表 " + JSON.stringify(table[0]);
+      box2.appendChild(path);
+      for (const pair of table[1]) {
+        const ent = document.createElement("span");
+        const onPath = last !== null && level <= last.indices.length && table[0].length <= last.indices.length
+          && table[0].every(function (v, i) { return v === last.indices[i]; });
+        const keyMatch = onPath && pair[0] === last.indices[level - 1];
+        ent.className = "ent" + (keyMatch ? " lit" : "") + (keyMatch && level === levels && last.frame >= 0 ? " hit" : "");
+        ent.textContent = pair[0] + " -> " + (Array.isArray(pair[1]) ? JSON.stringify(pair[1]) : String(pair[1]));
+        box2.appendChild(ent);
+      }
+      cells.appendChild(box2);
+    }
+    if (count === 0) {
+      const empty = document.createElement("div");
+      empty.className = "path";
+      empty.textContent = "这一级还没有表";
+      cells.appendChild(empty);
+    }
+    row.appendChild(tag);
+    row.appendChild(cells);
+    box.appendChild(row);
+  }
+}
+
+function drawSlots(view) {
+  const box = document.getElementById("slots");
+  box.textContent = "";
+  const frameOf = {};
+  for (const pair of view.mappings) {
+    frameOf[pair[0]] = pair[1];
+  }
+  view.tlb.forEach(function (vpn, at) {
+    const slot = document.createElement("div");
+    slot.className = "slot" + (at === view.cursor ? " cur" : "");
+    const key = document.createElement("div");
+    key.className = "k";
+    key.textContent = "槽 " + at;
+    const val = document.createElement("div");
+    val.className = "v";
+    val.textContent = vpn < 0 ? "空" : "页 " + vpn + " -> 帧 " + frameOf[vpn];
+    slot.appendChild(key);
+    slot.appendChild(val);
+    box.appendChild(slot);
+  });
+}
+
+function drawFrames(view) {
+  const box = document.getElementById("frames");
+  box.textContent = "";
+  const pageOf = {};
+  for (const pair of view.mappings) {
+    pageOf[pair[1]] = pair[0];
+  }
+  for (let frame = 0; frame < view.config.frames; frame += 1) {
+    const cell = document.createElement("div");
+    const busy = frame in pageOf;
+    cell.className = "fr" + (busy ? " busy" : "");
+    cell.textContent = "帧 " + frame + (busy ? " 页 " + pageOf[frame] : " 空");
+    box.appendChild(cell);
+  }
+}
+
+function drawTrace(view) {
+  const table = document.getElementById("trace");
+  table.textContent = "";
+  const head = document.createElement("tr");
+  for (const text of ["序", "页号", "命中", "帧号", "下钻"]) {
+    const th = document.createElement("th");
+    th.textContent = text;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+  view.accesses.forEach(function (row, at) {
+    const tr = document.createElement("tr");
+    tr.className = row[1] === 1 ? "hit" : (row[2] < 0 ? "fault" : "");
+    const cells = [String(at + 1), String(row[0]),
+                   row[1] === 1 ? "是" : "否",
+                   row[2] < 0 ? "缺页" : String(row[2]), String(row[3])];
+    for (const text of cells) {
+      const td = document.createElement("td");
+      td.className = "num";
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  });
+  document.getElementById("faultNote").textContent =
+    "缺页记录 " + JSON.stringify(view.faults) + "；下钻 " + view.walks + " 次；命中 " + view.hits
+    + " 次；建表 " + view.tables_new + " 张、回收 " + view.tables_freed + " 张；空闲帧 "
+    + JSON.stringify(view.free);
+}
+
+function draw() {
+  const view = render(spec);
+  drawReadouts(view.config, view);
+  drawRuler(view);
+  drawLevels(view);
+  drawSlots(view);
+  drawFrames(view);
+  drawTrace(view);
+  mark("markTables", view.tables_ok, view.tables_ok ? "表自洽" : "表不自洽");
+  mark("markTlb", view.tlb_ok, view.tlb_ok ? "无陈旧项" : "有陈旧项");
+  mark("markFrames", view.frames_ok, view.frames_ok ? "帧账平" : "帧账不平");
+  mark("markRecords", view.records_ok, view.records_ok ? "记录自洽" : "记录不自洽");
+}
+
+function push(event) {
+  spec.events.push(event);
+  draw();
+}
+
+document.getElementById("doMap").addEventListener("click", function () {
+  push({ kind: "map", vpn: Number(document.getElementById("vpnIn").value), frame: -1 });
+});
+document.getElementById("doUnmap").addEventListener("click", function () {
+  push({ kind: "unmap", vpn: Number(document.getElementById("vpnIn").value) });
+});
+document.getElementById("doAccess").addEventListener("click", function () {
+  push({ kind: "access", address: Number(document.getElementById("addrIn").value) });
+});
+document.getElementById("doFlush").addEventListener("click", function () {
+  push({ kind: "flush" });
+});
+
+fetch("sample/walk.json").then(function (reply) {
+  return reply.json();
+}).then(function (data) {
+  spec = data;
+  document.getElementById("sub").textContent =
+    "场景 " + spec.events.length + " 条事件，起始空闲帧 " + spec.state.free.length + " 个；点下面的按钮接着加事件。";
+  draw();
+}).catch(function () {
+  document.getElementById("sub").textContent = BAD;
+});
+</script>
+</body>
+</html>
